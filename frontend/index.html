@@ -255,7 +255,7 @@
 
 <div class="container">
     <header>
-        <h1>DivyaLekhani</h1>
+        <h1 id="titleHeader" style="cursor: pointer; user-select: none;">DivyaLekhani</h1>
         <p>License Generator Portal</p>
     </header>
 
@@ -277,14 +277,22 @@
             <input type="text" id="hardwareId" class="form-control" placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX" required>
         </div>
 
-        <div class="form-group">
-            <label for="duration">Expiration Duration</label>
-            <select id="duration" class="form-control">
-                <option value="24">24 Hours (Trial)</option>
-                <option value="720">30 Days (Standard)</option>
-                <option value="8760">365 Days (Annual)</option>
-                <option value="876000">100 Years (Lifetime)</option>
-            </select>
+        <div id="developerControls" style="display: none; border: 1px dashed var(--accent-cyan); padding: 15px; border-radius: 10px; margin-bottom: 20px; background: rgba(0, 229, 255, 0.03);">
+            <div style="color: var(--accent-cyan); font-size: 0.8rem; font-weight: bold; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 1px;">Developer Settings</div>
+            <div class="form-group">
+                <label for="duration">Expiration Duration</label>
+                <select id="duration" class="form-control">
+                    <option value="24">24 Hours (Default)</option>
+                    <option value="720">30 Days (Standard)</option>
+                    <option value="8760">365 Days (Annual)</option>
+                    <option value="876000">100 Years (Lifetime)</option>
+                    <option value="custom">Custom Date & Time</option>
+                </select>
+            </div>
+            <div class="form-group" id="customDateGroup" style="display: none;">
+                <label for="customDate">Select Custom Expiration Date</label>
+                <input type="datetime-local" id="customDate" class="form-control">
+            </div>
         </div>
 
         <button type="submit" class="btn-submit" id="btnSubmit">

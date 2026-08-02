@@ -4,6 +4,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const licensedBy = document.getElementById('licensedBy');
     const hardwareId = document.getElementById('hardwareId');
     const duration = document.getElementById('duration');
+    const customDate = document.getElementById('customDate');
+    const customDateGroup = document.getElementById('customDateGroup');
+    const developerControls = document.getElementById('developerControls');
+    const titleHeader = document.getElementById('titleHeader');
     
     const btnSubmit = document.getElementById('btnSubmit');
     const spinner = document.getElementById('spinner');
@@ -28,6 +32,39 @@ document.addEventListener('DOMContentLoaded', () => {
         e.target.value = formatted.join('-');
     });
 
+    // Toggle custom date selection
+    duration.addEventListener('change', () => {
+        if (duration.value === 'custom') {
+            customDateGroup.style.display = 'block';
+            // Set default custom date to tomorrow
+            const tomorrow = new Date();
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            tomorrow.setMinutes(tomorrow.getMinutes() - tomorrow.getTimezoneOffset());
+            customDate.value = tomorrow.toISOString().slice(0, 16);
+        } else {
+            customDateGroup.style.display = 'none';
+        }
+    });
+
+    // Developer mode unlock: 10 continuous clicks within 5 seconds
+    let tapCount = 0;
+    let lastTapTime = 0;
+    titleHeader.addEventListener('click', () => {
+        const now = Date.now();
+        if (now - lastTapTime < 1000) {
+            tapCount++;
+        } else {
+            tapCount = 1;
+        }
+        lastTapTime = now;
+
+        if (tapCount >= 10) {
+            developerControls.style.display = 'block';
+            developerControls.scrollIntoView({ behavior: 'smooth' });
+            tapCount = 0;
+        }
+    });
+
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
         
@@ -42,11 +79,32 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
+        // Expiration hours calculation
+        let durationHours = 24; // default
+        if (developerControls.style.display !== 'none') {
+            if (duration.value === 'custom') {
+                if (!customDate.value) {
+                    showError("Please pick a custom expiration date and time");
+                    return;
+                }
+                const selectedTime = new Date(customDate.value);
+                const now = new Date();
+                const diffMs = selectedTime - now;
+                if (diffMs <= 0) {
+                    showError("Custom expiration date and time must be in the future");
+                    return;
+                }
+                // Convert diff to hours and round up
+                durationHours = Math.max(1, Math.ceil(diffMs / (1000 * 60 * 60)));
+            } else {
+                durationHours = parseInt(duration.value) || 24;
+            }
+        }
+
         // Set Loading State
         setLoading(true);
 
         // API Endpoint mapping
-        // SWA resolves "/api/..." natively to functions if mapped together
         const endpoint = window.location.origin.includes('localhost') || window.location.origin.includes('127.0.0.1')
             ? 'http://localhost:7071/api/generate-license' 
             : '/api/generate-license';
@@ -61,7 +119,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     issued_to: issuedTo.value.trim(),
                     licensed_by: licensedBy.value.trim(),
                     hardware_id: hwVal,
-                    duration_hours: parseInt(duration.value)
+                    duration_hours: durationHours
                 })
             });
 
