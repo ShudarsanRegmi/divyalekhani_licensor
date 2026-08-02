@@ -267,10 +267,10 @@ def generate_license(req: func.HttpRequest) -> func.HttpResponse:
                 headers=headers
             )
 
-        # OTP is valid! Generate an auth_token valid for 30 minutes
+        # OTP is valid! Generate an auth_token valid for 2 minutes
         auth_data = {
             "authorized": True,
-            "expiry": int(time.time()) + 1800 # 30 minutes session duration
+            "expiry": int(time.time()) + 120 # 2 minutes session duration
         }
 
         try:

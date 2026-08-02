@@ -25,6 +25,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const developerControls = document.getElementById('developerControls');
     const titleHeader = document.getElementById('titleHeader');
     const btnLockPortal = document.getElementById('btnLockPortal');
+    const sessionTimer = document.getElementById('sessionTimer');
     
     const btnSubmit = document.getElementById('btnSubmit');
     const spinner = document.getElementById('spinner');
@@ -42,6 +43,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let activeSessionToken = "";
     let activeAuthToken = "";
+    let sessionCountdownInterval = null;
 
     const endpoint = window.location.origin.includes('localhost') || window.location.origin.includes('127.0.0.1')
         ? 'http://localhost:7071/api/generate-license' 
@@ -53,6 +55,45 @@ document.addEventListener('DOMContentLoaded', () => {
         const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
         const hashArray = Array.from(new Uint8Array(hashBuffer));
         return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    // Timer functions
+    function startSessionTimer() {
+        clearInterval(sessionCountdownInterval);
+        let timeLeft = 120; // 2 minutes in seconds
+        sessionTimer.textContent = "Expires: 02:00";
+
+        sessionCountdownInterval = setInterval(() => {
+            timeLeft--;
+            if (timeLeft <= 0) {
+                clearInterval(sessionCountdownInterval);
+                sessionTimer.textContent = "Expired";
+                lockPortal("Session expired. Please authenticate again.");
+            } else {
+                const minutes = Math.floor(timeLeft / 60);
+                const seconds = timeLeft % 60;
+                sessionTimer.textContent = `Expires: ${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+            }
+        }, 1000);
+    }
+
+    function stopSessionTimer() {
+        clearInterval(sessionCountdownInterval);
+    }
+
+    function lockPortal(customErrorMessage = "") {
+        stopSessionTimer();
+        errorBanner.style.display = 'none';
+        resultCard.style.display = 'none';
+        licenseForm.style.display = 'none';
+        passwordForm.style.display = 'block';
+        password.value = "";
+        activeAuthToken = "";
+        activeSessionToken = "";
+
+        if (customErrorMessage) {
+            showError(customErrorMessage);
+        }
     }
 
     // Auto-formatting Device Code (XXXX-XXXX-XXXX-XXXX-XXXX-XXXX)
@@ -189,6 +230,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 customDateGroup.style.display = "none";
                 developerControls.style.display = "none";
                 resultCard.style.display = "none";
+
+                // Start the 2-minute visual session countdown timer
+                startSessionTimer();
             } else {
                 throw new Error("Unauthorized access.");
             }
@@ -268,6 +312,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
         } catch (err) {
             showError(err.message);
+            if (err.message.includes("expired") || response.status === 401) {
+                // If token has expired server-side, kick user out immediately
+                lockPortal("Session expired. Please authenticate again.");
+            }
         } finally {
             setLicenseLoading(false);
         }
@@ -281,13 +329,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     btnLockPortal.addEventListener('click', () => {
-        errorBanner.style.display = 'none';
-        resultCard.style.display = 'none';
-        licenseForm.style.display = 'none';
-        passwordForm.style.display = 'block';
-        password.value = "";
-        activeAuthToken = "";
-        activeSessionToken = "";
+        lockPortal();
     });
 
     btnCopy.addEventListener('click', async () => {
