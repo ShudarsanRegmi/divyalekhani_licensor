@@ -8,7 +8,16 @@ document.addEventListener('DOMContentLoaded', () => {
     const customDateGroup = document.getElementById('customDateGroup');
     const developerControls = document.getElementById('developerControls');
     const titleHeader = document.getElementById('titleHeader');
-    
+    const password = document.getElementById('password');
+
+    // OTP Elements
+    const otpForm = document.getElementById('otpForm');
+    const otp = document.getElementById('otp');
+    const btnSubmitOtp = document.getElementById('btnSubmitOtp');
+    const spinnerOtp = document.getElementById('spinnerOtp');
+    const btnTextOtp = document.getElementById('btnTextOtp');
+    const btnCancelOtp = document.getElementById('btnCancelOtp');
+
     const btnSubmit = document.getElementById('btnSubmit');
     const spinner = document.getElementById('spinner');
     const btnText = document.getElementById('btnText');
@@ -22,6 +31,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnCopy = document.getElementById('btnCopy');
     const copyBtnText = document.getElementById('copyBtnText');
 
+    let activeSessionToken = "";
+
     // Auto-formatting Device Code (XXXX-XXXX-XXXX-XXXX-XXXX-XXXX)
     hardwareId.addEventListener('input', (e) => {
         let val = e.target.value.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
@@ -32,11 +43,15 @@ document.addEventListener('DOMContentLoaded', () => {
         e.target.value = formatted.join('-');
     });
 
+    // Limit OTP input to numbers only
+    otp.addEventListener('input', (e) => {
+        e.target.value = e.target.value.replace(/[^0-9]/g, '');
+    });
+
     // Toggle custom date selection
     duration.addEventListener('change', () => {
         if (duration.value === 'custom') {
             customDateGroup.style.display = 'block';
-            // Set default custom date to tomorrow
             const tomorrow = new Date();
             tomorrow.setDate(tomorrow.getDate() + 1);
             tomorrow.setMinutes(tomorrow.getMinutes() - tomorrow.getTimezoneOffset());
@@ -46,7 +61,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Developer mode unlock: 10 continuous clicks within 5 seconds
+    // Developer mode unlock: 10 continuous clicks
     let tapCount = 0;
     let lastTapTime = 0;
     titleHeader.addEventListener('click', () => {
@@ -65,22 +80,23 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    const endpoint = window.location.origin.includes('localhost') || window.location.origin.includes('127.0.0.1')
+        ? 'http://localhost:7071/api/generate-license' 
+        : '/api/generate-license';
+
+    // --- PHASE 1: SUBMIT DETAILS & REQUEST OTP ---
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
-        
-        // Hide previous success or error states
         errorBanner.style.display = 'none';
         resultCard.style.display = 'none';
         
-        // Validation check
         const hwVal = hardwareId.value.trim();
         if (hwVal.split('-').length !== 6 || hwVal.replace(/-/g, '').length !== 24) {
             showError("Device Code must be exactly 24 characters in format XXXX-XXXX-XXXX-XXXX-XXXX-XXXX");
             return;
         }
 
-        // Expiration hours calculation
-        let durationHours = 24; // default
+        let durationHours = 24;
         if (developerControls.style.display !== 'none') {
             if (duration.value === 'custom') {
                 if (!customDate.value) {
@@ -94,25 +110,18 @@ document.addEventListener('DOMContentLoaded', () => {
                     showError("Custom expiration date and time must be in the future");
                     return;
                 }
-                const maxDiffMs = 30 * 24 * 60 * 60 * 1000; // 30 days in ms
+                const maxDiffMs = 30 * 24 * 60 * 60 * 1000;
                 if (diffMs > maxDiffMs) {
                     showError("Custom expiration date cannot exceed 30 days from now");
                     return;
                 }
-                // Convert diff to hours and round up
                 durationHours = Math.max(1, Math.ceil(diffMs / (1000 * 60 * 60)));
             } else {
                 durationHours = parseInt(duration.value) || 24;
             }
         }
 
-        // Set Loading State
         setLoading(true);
-
-        // API Endpoint mapping
-        const endpoint = window.location.origin.includes('localhost') || window.location.origin.includes('127.0.0.1')
-            ? 'http://localhost:7071/api/generate-license' 
-            : '/api/generate-license';
 
         try {
             const response = await fetch(endpoint, {
@@ -121,6 +130,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
+                    password: password.value.trim(),
                     issued_to: issuedTo.value.trim(),
                     licensed_by: licensedBy.value.trim(),
                     hardware_id: hwVal,
@@ -131,23 +141,79 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await response.json();
 
             if (!response.ok) {
-                throw new Error(data.error || "Failed to generate license keys.");
+                throw new Error(data.error || "Failed to process authentication details.");
             }
 
-            // Populate and Show Result
-            licenseBox.textContent = data.license_key;
-            metaExpiry.textContent = data.expiry_time;
-            metaHardware.textContent = data.hardware_id;
-            resultCard.style.display = 'block';
-            
-            // Scroll to the bottom of the container
-            resultCard.scrollIntoView({ behavior: 'smooth' });
+            if (data.otp_required) {
+                activeSessionToken = data.session_token;
+                form.style.display = 'none';
+                otpForm.style.display = 'block';
+                otp.value = '';
+                otp.focus();
+            } else {
+                throw new Error("Invalid response state from API.");
+            }
 
         } catch (err) {
             showError(err.message);
         } finally {
             setLoading(false);
         }
+    });
+
+    // --- PHASE 2: VERIFY OTP AND RENDER LICENSE ---
+    otpForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        errorBanner.style.display = 'none';
+
+        if (otp.value.length !== 6) {
+            showError("OTP code must be exactly 6 digits");
+            return;
+        }
+
+        setOtpLoading(true);
+
+        try {
+            const response = await fetch(endpoint, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    otp: otp.value.trim(),
+                    session_token: activeSessionToken
+                })
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || "Verification failed.");
+            }
+
+            // Success: Clean and reset state, show license box
+            otpForm.style.display = 'none';
+            form.style.display = 'block';
+            password.value = ''; // Clear secret password
+
+            licenseBox.textContent = data.license_key;
+            metaExpiry.textContent = data.expiry_time;
+            metaHardware.textContent = data.hardware_id;
+            resultCard.style.display = 'block';
+            resultCard.scrollIntoView({ behavior: 'smooth' });
+
+        } catch (err) {
+            showError(err.message);
+        } finally {
+            setOtpLoading(false);
+        }
+    });
+
+    btnCancelOtp.addEventListener('click', () => {
+        errorBanner.style.display = 'none';
+        otpForm.style.display = 'none';
+        form.style.display = 'block';
+        activeSessionToken = "";
     });
 
     btnCopy.addEventListener('click', async () => {
@@ -169,11 +235,23 @@ document.addEventListener('DOMContentLoaded', () => {
         if (isLoading) {
             btnSubmit.disabled = true;
             spinner.style.display = 'block';
-            btnText.textContent = "Signing & Generating...";
+            btnText.textContent = "Authorizing & Dispatched OTP...";
         } else {
             btnSubmit.disabled = false;
             spinner.style.display = 'none';
             btnText.textContent = "Generate License";
+        }
+    }
+
+    function setOtpLoading(isLoading) {
+        if (isLoading) {
+            btnSubmitOtp.disabled = true;
+            spinnerOtp.style.display = 'block';
+            btnTextOtp.textContent = "Verifying Code...";
+        } else {
+            btnSubmitOtp.disabled = false;
+            spinnerOtp.style.display = 'none';
+            btnTextOtp.textContent = "Verify & Generate License";
         }
     }
 
