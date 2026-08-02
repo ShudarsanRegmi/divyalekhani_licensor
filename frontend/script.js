@@ -1,5 +1,21 @@
 document.addEventListener('DOMContentLoaded', () => {
-    const form = document.getElementById('licenseForm');
+    // 1. Auth Form Elements
+    const passwordForm = document.getElementById('passwordForm');
+    const password = document.getElementById('password');
+    const btnSubmitPassword = document.getElementById('btnSubmitPassword');
+    const spinnerPassword = document.getElementById('spinnerPassword');
+    const btnTextPassword = document.getElementById('btnTextPassword');
+
+    // 2. OTP Form Elements
+    const otpForm = document.getElementById('otpForm');
+    const otp = document.getElementById('otp');
+    const btnSubmitOtp = document.getElementById('btnSubmitOtp');
+    const spinnerOtp = document.getElementById('spinnerOtp');
+    const btnTextOtp = document.getElementById('btnTextOtp');
+    const btnCancelOtp = document.getElementById('btnCancelOtp');
+
+    // 3. License Generation Form Elements
+    const licenseForm = document.getElementById('licenseForm');
     const issuedTo = document.getElementById('issuedTo');
     const licensedBy = document.getElementById('licensedBy');
     const hardwareId = document.getElementById('hardwareId');
@@ -8,20 +24,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const customDateGroup = document.getElementById('customDateGroup');
     const developerControls = document.getElementById('developerControls');
     const titleHeader = document.getElementById('titleHeader');
-    const password = document.getElementById('password');
-
-    // OTP Elements
-    const otpForm = document.getElementById('otpForm');
-    const otp = document.getElementById('otp');
-    const btnSubmitOtp = document.getElementById('btnSubmitOtp');
-    const spinnerOtp = document.getElementById('spinnerOtp');
-    const btnTextOtp = document.getElementById('btnTextOtp');
-    const btnCancelOtp = document.getElementById('btnCancelOtp');
-
+    const btnLockPortal = document.getElementById('btnLockPortal');
+    
     const btnSubmit = document.getElementById('btnSubmit');
     const spinner = document.getElementById('spinner');
     const btnText = document.getElementById('btnText');
     
+    // UI Panels
     const errorBanner = document.getElementById('errorBanner');
     const resultCard = document.getElementById('resultCard');
     const licenseBox = document.getElementById('licenseKeyBox');
@@ -32,6 +41,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const copyBtnText = document.getElementById('copyBtnText');
 
     let activeSessionToken = "";
+    let activeAuthToken = "";
 
     // Auto-formatting Device Code (XXXX-XXXX-XXXX-XXXX-XXXX-XXXX)
     hardwareId.addEventListener('input', (e) => {
@@ -84,8 +94,102 @@ document.addEventListener('DOMContentLoaded', () => {
         ? 'http://localhost:7071/api/generate-license' 
         : '/api/generate-license';
 
-    // --- PHASE 1: SUBMIT DETAILS & REQUEST OTP ---
-    form.addEventListener('submit', async (e) => {
+    // --- PHASE 1: SUBMIT SECURITY PASSWORD ---
+    passwordForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        errorBanner.style.display = 'none';
+        
+        setPasswordLoading(true);
+
+        try {
+            const response = await fetch(endpoint, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    password: password.value.trim()
+                })
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || "Authentication failed.");
+            }
+
+            if (data.otp_required) {
+                activeSessionToken = data.session_token;
+                passwordForm.style.display = 'none';
+                otpForm.style.display = 'block';
+                otp.value = '';
+                otp.focus();
+            } else {
+                throw new Error("Invalid response format.");
+            }
+
+        } catch (err) {
+            showError(err.message);
+        } finally {
+            setPasswordLoading(false);
+        }
+    });
+
+    // --- PHASE 2: VERIFY OTP ---
+    otpForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        errorBanner.style.display = 'none';
+
+        if (otp.value.length !== 6) {
+            showError("OTP code must be exactly 6 digits");
+            return;
+        }
+
+        setOtpLoading(true);
+
+        try {
+            const response = await fetch(endpoint, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    otp: otp.value.trim(),
+                    session_token: activeSessionToken
+                })
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || "OTP verification failed.");
+            }
+
+            if (data.authorized && data.auth_token) {
+                activeAuthToken = data.auth_token;
+                otpForm.style.display = 'none';
+                licenseForm.style.display = 'block';
+                
+                // Clear fields in generator
+                issuedTo.value = "";
+                hardwareId.value = "";
+                duration.value = "24";
+                customDateGroup.style.display = "none";
+                developerControls.style.display = "none";
+                resultCard.style.display = "none";
+            } else {
+                throw new Error("Unauthorized access.");
+            }
+
+        } catch (err) {
+            showError(err.message);
+        } finally {
+            setOtpLoading(false);
+        }
+    });
+
+    // --- PHASE 3: GENERATE LICENSE ---
+    licenseForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         errorBanner.style.display = 'none';
         resultCard.style.display = 'none';
@@ -121,7 +225,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        setLoading(true);
+        setLicenseLoading(true);
 
         try {
             const response = await fetch(endpoint, {
@@ -130,7 +234,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    password: password.value.trim(),
+                    auth_token: activeAuthToken,
                     issued_to: issuedTo.value.trim(),
                     licensed_by: licensedBy.value.trim(),
                     hardware_id: hwVal,
@@ -141,60 +245,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await response.json();
 
             if (!response.ok) {
-                throw new Error(data.error || "Failed to process authentication details.");
+                throw new Error(data.error || "Failed to generate license keys.");
             }
-
-            if (data.otp_required) {
-                activeSessionToken = data.session_token;
-                form.style.display = 'none';
-                otpForm.style.display = 'block';
-                otp.value = '';
-                otp.focus();
-            } else {
-                throw new Error("Invalid response state from API.");
-            }
-
-        } catch (err) {
-            showError(err.message);
-        } finally {
-            setLoading(false);
-        }
-    });
-
-    // --- PHASE 2: VERIFY OTP AND RENDER LICENSE ---
-    otpForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        errorBanner.style.display = 'none';
-
-        if (otp.value.length !== 6) {
-            showError("OTP code must be exactly 6 digits");
-            return;
-        }
-
-        setOtpLoading(true);
-
-        try {
-            const response = await fetch(endpoint, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    otp: otp.value.trim(),
-                    session_token: activeSessionToken
-                })
-            });
-
-            const data = await response.json();
-
-            if (!response.ok) {
-                throw new Error(data.error || "Verification failed.");
-            }
-
-            // Success: Clean and reset state, show license box
-            otpForm.style.display = 'none';
-            form.style.display = 'block';
-            password.value = ''; // Clear secret password
 
             licenseBox.textContent = data.license_key;
             metaExpiry.textContent = data.expiry_time;
@@ -205,14 +257,24 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (err) {
             showError(err.message);
         } finally {
-            setOtpLoading(false);
+            setLicenseLoading(false);
         }
     });
 
     btnCancelOtp.addEventListener('click', () => {
         errorBanner.style.display = 'none';
         otpForm.style.display = 'none';
-        form.style.display = 'block';
+        passwordForm.style.display = 'block';
+        activeSessionToken = "";
+    });
+
+    btnLockPortal.addEventListener('click', () => {
+        errorBanner.style.display = 'none';
+        resultCard.style.display = 'none';
+        licenseForm.style.display = 'none';
+        passwordForm.style.display = 'block';
+        password.value = "";
+        activeAuthToken = "";
         activeSessionToken = "";
     });
 
@@ -231,15 +293,15 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    function setLoading(isLoading) {
+    function setPasswordLoading(isLoading) {
         if (isLoading) {
-            btnSubmit.disabled = true;
-            spinner.style.display = 'block';
-            btnText.textContent = "Authorizing & Dispatched OTP...";
+            btnSubmitPassword.disabled = true;
+            spinnerPassword.style.display = 'block';
+            btnTextPassword.textContent = "Validating Password...";
         } else {
-            btnSubmit.disabled = false;
-            spinner.style.display = 'none';
-            btnText.textContent = "Generate License";
+            btnSubmitPassword.disabled = false;
+            spinnerPassword.style.display = 'none';
+            btnTextPassword.textContent = "Authenticate";
         }
     }
 
@@ -251,7 +313,19 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             btnSubmitOtp.disabled = false;
             spinnerOtp.style.display = 'none';
-            btnTextOtp.textContent = "Verify & Generate License";
+            btnTextOtp.textContent = "Verify OTP & Unlock Portal";
+        }
+    }
+
+    function setLicenseLoading(isLoading) {
+        if (isLoading) {
+            btnSubmit.disabled = true;
+            spinner.style.display = 'block';
+            btnText.textContent = "Signing & Generating...";
+        } else {
+            btnSubmit.disabled = false;
+            spinner.style.display = 'none';
+            btnText.textContent = "Generate License";
         }
     }
 

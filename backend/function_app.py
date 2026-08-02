@@ -25,18 +25,18 @@ def send_otp_email(otp: str):
     msg = MIMEMultipart()
     msg['From'] = f"DivyaLekhani Admin <{sender_email}>"
     msg['To'] = sender_email
-    msg['Subject'] = f"DivyaLekhani Admin OTP: {otp}"
+    msg['Subject'] = f"DivyaLekhani Access OTP: {otp}"
     
     body = f"""
     <html>
     <body style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #0b0d19; color: #ffffff; padding: 20px;">
         <div style="max-width: 500px; margin: 0 auto; background-color: #16192b; border: 1px solid rgba(255,255,255,0.08); border-radius: 15px; padding: 35px; text-align: center; box-shadow: 0 15px 30px rgba(0,0,0,0.5);">
-            <h2 style="color: #00e5ff; margin-bottom: 10px; font-weight: 700;">Admin Verification</h2>
-            <p style="color: #abb1cc; font-size: 15px; margin-bottom: 25px;">Enter the following One-Time Password in the generation portal to authorize license key creation:</p>
+            <h2 style="color: #00e5ff; margin-bottom: 10px; font-weight: 700;">Admin Verification Required</h2>
+            <p style="color: #abb1cc; font-size: 15px; margin-bottom: 25px;">Enter the following One-Time Password to unlock the license generator interface:</p>
             <div style="font-size: 36px; font-weight: 800; color: #39ff14; letter-spacing: 6px; background: rgba(57,255,20,0.08); padding: 15px 30px; border-radius: 10px; display: inline-block; margin-bottom: 25px; border: 1px solid rgba(57,255,20,0.2);">
                 {otp}
             </div>
-            <p style="color: #555977; font-size: 12px; margin-top: 10px;">This OTP is valid for the next 5 minutes. If you did not request this, please secure your server credentials.</p>
+            <p style="color: #555977; font-size: 12px; margin-top: 10px;">This OTP is valid for 5 minutes.</p>
         </div>
     </body>
     </html>
@@ -49,9 +49,9 @@ def send_otp_email(otp: str):
 
 @app.route(route="generate-license", methods=["POST"])
 def generate_license(req: func.HttpRequest) -> func.HttpResponse:
-    logging.info("Processing license generation/auth request.")
+    logging.info("Processing API request.")
 
-    # CORS headers configuration
+    # CORS headers
     headers = {
         "Content-Type": "application/json",
         "Access-Control-Allow-Origin": "*",
@@ -71,11 +71,11 @@ def generate_license(req: func.HttpRequest) -> func.HttpResponse:
             headers=headers
         )
 
-    # 1. Fetch Private Key safely from Application Settings
+    # Fetch Private Key securely
     private_key_pem = os.environ.get("PRIVATE_KEY_PEM")
     if not private_key_pem:
         return func.HttpResponse(
-            json.dumps({"error": "Server Configuration Error: Private Key is missing"}),
+            json.dumps({"error": "Server Configuration Error: Sign key missing"}),
             status_code=500,
             headers=headers
         )
@@ -94,23 +94,27 @@ def generate_license(req: func.HttpRequest) -> func.HttpResponse:
             headers=headers
         )
 
-    # Check if this is the second-factor verification step
+    # Determine step based on payload fields
+    auth_token = req_body.get("auth_token", "").strip()
     otp = req_body.get("otp", "").strip()
     session_token = req_body.get("session_token", "").strip()
+    password = req_body.get("password", "").strip()
 
-    if otp and session_token:
-        # --- PHASE 2: VERIFY OTP AND GENERATE LICENSE ---
-        token_parts = session_token.split(".")
+    if auth_token:
+        # =====================================================================
+        # PHASE 3: AUTHORIZED GENERATION OF LICENSE
+        # =====================================================================
+        token_parts = auth_token.split(".")
         if len(token_parts) != 2:
             return func.HttpResponse(
-                json.dumps({"error": "Invalid session token format"}),
-                status_code=400,
+                json.dumps({"error": "Malformed authorization token"}),
+                status_code=401,
                 headers=headers
             )
-        
+
         payload_b64, signature_b64 = token_parts[0], token_parts[1]
-        
-        # Verify signature of session token
+
+        # Verify Signature
         try:
             sig_bytes = base64.urlsafe_b64decode(signature_b64 + "=" * (4 - len(signature_b64) % 4))
             public_key = private_key.public_key()
@@ -121,62 +125,58 @@ def generate_license(req: func.HttpRequest) -> func.HttpResponse:
                 hashes.SHA256()
             )
         except Exception as e:
-            logging.error(f"Session token verification failed: {str(e)}")
             return func.HttpResponse(
-                json.dumps({"error": "Session verification failed or token was tampered with"}),
+                json.dumps({"error": "Invalid authorization token signature"}),
                 status_code=401,
                 headers=headers
             )
-            
-        # Parse payload
+
+        # Parse Payload
         try:
             payload_bytes = base64.urlsafe_b64decode(payload_b64 + "=" * (4 - len(payload_b64) % 4))
-            session_data = json.loads(payload_bytes.decode("utf-8"))
+            auth_data = json.loads(payload_bytes.decode("utf-8"))
         except Exception as e:
             return func.HttpResponse(
-                json.dumps({"error": f"Failed to parse session data: {str(e)}"}),
+                json.dumps({"error": "Failed to parse authorization metadata"}),
                 status_code=400,
                 headers=headers
             )
-            
-        # Check Expiry
-        expiry = session_data.get("expiry", 0)
+
+        # Verify Expiry
+        expiry = auth_data.get("expiry", 0)
         if int(time.time()) > expiry:
             return func.HttpResponse(
-                json.dumps({"error": "Session expired. Please request a new OTP."}),
+                json.dumps({"error": "Authorization expired. Please re-authenticate."}),
                 status_code=401,
                 headers=headers
             )
-            
-        # Check OTP Hash
-        otp_hash = session_data.get("otp_hash", "")
-        input_hash = hashlib.sha256(otp.encode("utf-8")).hexdigest()
-        if input_hash != otp_hash:
+
+        # Extract License details from body
+        issued_to = req_body.get("issued_to", "").strip()
+        licensed_by = req_body.get("licensed_by", "Aparichit").strip()
+        hardware_id = req_body.get("hardware_id", "").strip().upper()
+        duration_hours = int(req_body.get("duration_hours", 24))
+
+        if not issued_to or not hardware_id:
             return func.HttpResponse(
-                json.dumps({"error": "Invalid OTP. Please check your email and try again."}),
-                status_code=401,
+                json.dumps({"error": "issued_to and hardware_id are required fields"}),
+                status_code=400,
                 headers=headers
             )
-            
-        # Generate License from stored request
-        orig = session_data.get("original_request", {})
-        issued_to = orig.get("issued_to", "")
-        licensed_by = orig.get("licensed_by", "Aparichit")
-        hardware_id = orig.get("hardware_id", "")
-        duration_hours = orig.get("duration_hours", 24)
-        
+
+        # Generate License payload
         now = datetime.now()
         expiry_time = now + timedelta(hours=duration_hours)
         expiry_epoch_ms = int(time.mktime(expiry_time.timetuple()) * 1000)
-        
+
         license_payload = {
             "issued_to": issued_to,
             "licensed_by": licensed_by,
             "expiry_ms": expiry_epoch_ms,
             "hardware_id": hardware_id
         }
-        
-        # Sign License payload
+
+        # Sign License
         try:
             license_str = json.dumps(license_payload, separators=(',', ':'))
             lic_b64 = base64.urlsafe_b64encode(license_str.encode("utf-8")).decode("utf-8").rstrip("=")
@@ -189,11 +189,11 @@ def generate_license(req: func.HttpRequest) -> func.HttpResponse:
             license_key = f"{lic_b64}.{lic_sig_b64}"
         except Exception as e:
             return func.HttpResponse(
-                json.dumps({"error": f"Failed to generate license signature: {str(e)}"}),
+                json.dumps({"error": f"Failed to sign license: {str(e)}"}),
                 status_code=500,
                 headers=headers
             )
-            
+
         return func.HttpResponse(
             json.dumps({
                 "license_key": license_key,
@@ -206,34 +206,108 @@ def generate_license(req: func.HttpRequest) -> func.HttpResponse:
             headers=headers
         )
 
-    else:
-        # --- PHASE 1: VERIFY TIMESTAMP PASSWORD AND SEND EMAIL OTP ---
-        password = req_body.get("password", "").strip()
-        issued_to = req_body.get("issued_to", "").strip()
-        licensed_by = req_body.get("licensed_by", "Aparichit").strip()
-        hardware_id = req_body.get("hardware_id", "").strip().upper()
-        duration_hours = int(req_body.get("duration_hours", 24))
-
-        if not password:
+    elif otp and session_token:
+        # =====================================================================
+        # PHASE 2: VERIFY OTP AND RETURN TEMPORARY AUTHORIZATION TOKEN (30 MIN)
+        # =====================================================================
+        token_parts = session_token.split(".")
+        if len(token_parts) != 2:
             return func.HttpResponse(
-                json.dumps({"error": "Authentication password is required"}),
-                status_code=401,
-                headers=headers
-            )
-
-        if not issued_to or not hardware_id:
-            return func.HttpResponse(
-                json.dumps({"error": "Recipient name and Device Code are required"}),
+                json.dumps({"error": "Invalid session token format"}),
                 status_code=400,
                 headers=headers
             )
 
-        # Verify timestamp password (up to 15 seconds back only)
+        payload_b64, signature_b64 = token_parts[0], token_parts[1]
+
+        # Verify Signature
+        try:
+            sig_bytes = base64.urlsafe_b64decode(signature_b64 + "=" * (4 - len(signature_b64) % 4))
+            public_key = private_key.public_key()
+            public_key.verify(
+                sig_bytes,
+                payload_b64.encode("utf-8"),
+                padding.PKCS1v15(),
+                hashes.SHA256()
+            )
+        except Exception as e:
+            return func.HttpResponse(
+                json.dumps({"error": "Session verification failed"}),
+                status_code=401,
+                headers=headers
+            )
+
+        # Parse session details
+        try:
+            payload_bytes = base64.urlsafe_b64decode(payload_b64 + "=" * (4 - len(payload_b64) % 4))
+            session_data = json.loads(payload_bytes.decode("utf-8"))
+        except Exception as e:
+            return func.HttpResponse(
+                json.dumps({"error": "Failed to parse session metadata"}),
+                status_code=400,
+                headers=headers
+            )
+
+        # Check Expiry
+        expiry = session_data.get("expiry", 0)
+        if int(time.time()) > expiry:
+            return func.HttpResponse(
+                json.dumps({"error": "Session expired. Please request a new OTP."}),
+                status_code=401,
+                headers=headers
+            )
+
+        # Validate OTP
+        otp_hash = session_data.get("otp_hash", "")
+        input_hash = hashlib.sha256(otp.encode("utf-8")).hexdigest()
+        if input_hash != otp_hash:
+            return func.HttpResponse(
+                json.dumps({"error": "Invalid OTP. Please check your email and try again."}),
+                status_code=401,
+                headers=headers
+            )
+
+        # OTP is valid! Generate an auth_token valid for 30 minutes
+        auth_data = {
+            "authorized": True,
+            "expiry": int(time.time()) + 1800 # 30 minutes session duration
+        }
+
+        try:
+            auth_str = json.dumps(auth_data, separators=(',', ':'))
+            auth_b64 = base64.urlsafe_b64encode(auth_str.encode("utf-8")).decode("utf-8").rstrip("=")
+            auth_sig = private_key.sign(
+                auth_b64.encode("utf-8"),
+                padding.PKCS1v15(),
+                hashes.SHA256()
+            )
+            auth_sig_b64 = base64.urlsafe_b64encode(auth_sig).decode("utf-8").rstrip("=")
+            auth_token = f"{auth_b64}.{auth_sig_b64}"
+        except Exception as e:
+            return func.HttpResponse(
+                json.dumps({"error": f"Failed to generate authorization session: {str(e)}"}),
+                status_code=500,
+                headers=headers
+            )
+
+        return func.HttpResponse(
+            json.dumps({
+                "authorized": True,
+                "auth_token": auth_token
+            }),
+            status_code=200,
+            headers=headers
+        )
+
+    elif password:
+        # =====================================================================
+        # PHASE 1: PASSWORD (TIMESTAMP) VERIFICATION AND DISPATCH OTP
+        # =====================================================================
         try:
             input_ts = int(password)
         except (ValueError, TypeError):
             return func.HttpResponse(
-                json.dumps({"error": "Invalid authentication format"}),
+                json.dumps({"error": "Invalid authorization token format"}),
                 status_code=401,
                 headers=headers
             )
@@ -242,15 +316,15 @@ def generate_license(req: func.HttpRequest) -> func.HttpResponse:
         diff = server_now - input_ts
         if diff < 0 or diff > 15:
             return func.HttpResponse(
-                json.dumps({"error": "Authentication failed or token expired (window exceeded 15s)"}),
+                json.dumps({"error": "Authorization expired (timestamp window exceeded 15s)"}),
                 status_code=401,
                 headers=headers
             )
 
         # Generate 6-digit OTP
         otp_code = f"{random.randint(100000, 999999)}"
-        
-        # Send Email OTP
+
+        # Dispatch OTP
         try:
             send_otp_email(otp_code)
         except Exception as e:
@@ -261,16 +335,10 @@ def generate_license(req: func.HttpRequest) -> func.HttpResponse:
                 headers=headers
             )
 
-        # Build session token signed using RSA private key
+        # Build session token
         session_data = {
             "otp_hash": hashlib.sha256(otp_code.encode("utf-8")).hexdigest(),
-            "expiry": int(time.time()) + 300, # Valid for 5 minutes
-            "original_request": {
-                "issued_to": issued_to,
-                "licensed_by": licensed_by,
-                "hardware_id": hardware_id,
-                "duration_hours": duration_hours
-            }
+            "expiry": int(time.time()) + 300 # Valid for 5 minutes
         }
 
         try:
@@ -296,5 +364,12 @@ def generate_license(req: func.HttpRequest) -> func.HttpResponse:
                 "session_token": session_token
             }),
             status_code=200,
+            headers=headers
+        )
+
+    else:
+        return func.HttpResponse(
+            json.dumps({"error": "Bad Request: Missing authentication details"}),
+            status_code=400,
             headers=headers
         )

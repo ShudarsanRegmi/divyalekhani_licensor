@@ -261,7 +261,46 @@
 
     <div class="error-banner" id="errorBanner"></div>
 
-    <form id="licenseForm">
+    <!-- 1. Password Entry Form (Visible by default) -->
+    <form id="passwordForm">
+        <div style="text-align: center; margin-bottom: 25px;">
+            <div style="font-size: 1.2rem; font-weight: 700; color: var(--accent-cyan); margin-bottom: 6px;">Authorization Required</div>
+            <p style="color: var(--text-secondary); font-size: 0.9rem;">Sign in with your administrator security key to unlock the portal.</p>
+        </div>
+        <div class="form-group">
+            <label for="password">Security Password</label>
+            <input type="password" id="password" class="form-control" placeholder="Enter authorization key" required>
+        </div>
+        <button type="submit" class="btn-submit" id="btnSubmitPassword">
+            <div class="spinner" id="spinnerPassword"></div>
+            <span id="btnTextPassword">Authenticate</span>
+        </button>
+    </form>
+
+    <!-- 2. OTP Form Section (Hidden by default) -->
+    <form id="otpForm" style="display: none;">
+        <div style="text-align: center; margin-bottom: 20px;">
+            <div style="font-size: 1.2rem; font-weight: 700; color: var(--accent-cyan); margin-bottom: 6px;">2-Factor Verification</div>
+            <p style="color: var(--text-secondary); font-size: 0.9rem;">An authorization code has been dispatched to your administrator email.</p>
+        </div>
+        <div class="form-group">
+            <label for="otp">Enter 6-Digit OTP</label>
+            <input type="text" id="otp" class="form-control" placeholder="e.g., 123456" maxlength="6" required style="letter-spacing: 4px; text-align: center; font-size: 1.2rem; font-weight: bold;">
+        </div>
+        <button type="submit" class="btn-submit" id="btnSubmitOtp">
+            <div class="spinner" id="spinnerOtp"></div>
+            <span id="btnTextOtp">Verify OTP & Unlock Portal</span>
+        </button>
+        <button type="button" id="btnCancelOtp" style="background: none; border: none; color: var(--accent-red); margin-top: 15px; width: 100%; text-align: center; cursor: pointer; font-size: 0.9rem; font-weight: bold; text-decoration: underline;">Cancel</button>
+    </form>
+
+    <!-- 3. License Details Form (Unlocked after 2FA is successful) -->
+    <form id="licenseForm" style="display: none;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; border-bottom: 1px solid var(--border-color); padding-bottom: 15px;">
+            <div style="font-size: 1.1rem; font-weight: 700; color: var(--accent-green);">Session Unlocked</div>
+            <button type="button" id="btnLockPortal" style="background: none; border: 1px solid var(--border-color); border-radius: 6px; padding: 6px 12px; color: var(--accent-red); cursor: pointer; font-size: 0.8rem; font-weight: bold;">Lock Portal</button>
+        </div>
+
         <div class="form-group">
             <label for="issuedTo">Issued To (Recipient Name)</label>
             <input type="text" id="issuedTo" class="form-control" placeholder="e.g., John Doe" required>
@@ -275,11 +314,6 @@
         <div class="form-group">
             <label for="hardwareId">Device Code (Hardware ID)</label>
             <input type="text" id="hardwareId" class="form-control" placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX" required>
-        </div>
-
-        <div class="form-group">
-            <label for="password">Security Password</label>
-            <input type="password" id="password" class="form-control" placeholder="Enter authorization key" required>
         </div>
 
         <div id="developerControls" style="display: none; border: 1px dashed var(--accent-cyan); padding: 15px; border-radius: 10px; margin-bottom: 20px; background: rgba(0, 229, 255, 0.03);">
@@ -305,23 +339,6 @@
             <div class="spinner" id="spinner"></div>
             <span id="btnText">Generate License</span>
         </button>
-    </form>
-
-    <!-- OTP Form Section (Hidden by default) -->
-    <form id="otpForm" style="display: none;">
-        <div style="text-align: center; margin-bottom: 20px;">
-            <div style="font-size: 1.2rem; font-weight: 700; color: var(--accent-cyan); margin-bottom: 6px;">2-Factor Verification</div>
-            <p style="color: var(--text-secondary); font-size: 0.9rem;">An authorization code has been dispatched to your administrator email.</p>
-        </div>
-        <div class="form-group">
-            <label for="otp">Enter 6-Digit OTP</label>
-            <input type="text" id="otp" class="form-control" placeholder="e.g., 123456" maxlength="6" required style="letter-spacing: 4px; text-align: center; font-size: 1.2rem; font-weight: bold;">
-        </div>
-        <button type="submit" class="btn-submit" id="btnSubmitOtp">
-            <div class="spinner" id="spinnerOtp"></div>
-            <span id="btnTextOtp">Verify & Generate License</span>
-        </button>
-        <button type="button" id="btnCancelOtp" style="background: none; border: none; color: var(--accent-red); margin-top: 15px; width: 100%; text-align: center; cursor: pointer; font-size: 0.9rem; font-weight: bold; text-decoration: underline;">Cancel</button>
     </form>
 
     <div class="result-card" id="resultCard">
