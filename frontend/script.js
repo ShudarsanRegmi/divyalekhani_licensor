@@ -94,6 +94,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     showError("Custom expiration date and time must be in the future");
                     return;
                 }
+                const maxDiffMs = 30 * 24 * 60 * 60 * 1000; // 30 days in ms
+                if (diffMs > maxDiffMs) {
+                    showError("Custom expiration date cannot exceed 30 days from now");
+                    return;
+                }
                 // Convert diff to hours and round up
                 durationHours = Math.max(1, Math.ceil(diffMs / (1000 * 60 * 60)));
             } else {
