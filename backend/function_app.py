@@ -71,6 +71,15 @@ def generate_license(req: func.HttpRequest) -> func.HttpResponse:
             headers=headers
         )
 
+    # 0. Check for Server Time Challenge Request (Mitigates Clock Drift & Hides Raw Password values)
+    action = req_body.get("action", "").strip()
+    if action == "get_challenge":
+        return func.HttpResponse(
+            json.dumps({"server_time": int(time.time())}),
+            status_code=200,
+            headers=headers
+        )
+
     # Fetch Private Key securely
     private_key_pem = os.environ.get("PRIVATE_KEY_PEM")
     if not private_key_pem:
@@ -99,6 +108,7 @@ def generate_license(req: func.HttpRequest) -> func.HttpResponse:
     otp = req_body.get("otp", "").strip()
     session_token = req_body.get("session_token", "").strip()
     password = req_body.get("password", "").strip()
+    timestamp_str = req_body.get("timestamp", "").strip()
 
     if auth_token:
         # =====================================================================
@@ -299,24 +309,36 @@ def generate_license(req: func.HttpRequest) -> func.HttpResponse:
             headers=headers
         )
 
-    elif password:
+    elif password and timestamp_str:
         # =====================================================================
-        # PHASE 1: PASSWORD (TIMESTAMP) VERIFICATION AND DISPATCH OTP
+        # PHASE 1: PASSWORD (SHA256 HASH) VERIFICATION AND DISPATCH OTP
         # =====================================================================
         try:
-            input_ts = int(password)
-        except (ValueError, TypeError):
+            input_ts = int(timestamp_str)
+        except ValueError:
             return func.HttpResponse(
-                json.dumps({"error": "Invalid authorization token format"}),
+                json.dumps({"error": "Invalid timestamp layout"}),
                 status_code=401,
                 headers=headers
             )
 
+        # Verify time-window (expanded to 30s to accommodate time fetch + client hashing delay)
         server_now = int(time.time())
         diff = server_now - input_ts
-        if diff < 0 or diff > 15:
+        if diff < 0 or diff > 30:
             return func.HttpResponse(
-                json.dumps({"error": "Authorization expired (timestamp window exceeded 15s)"}),
+                json.dumps({"error": "Authentication request expired (time window exceeded 30s)"}),
+                status_code=401,
+                headers=headers
+            )
+
+        # Verify password hash match using the secret salt
+        salt = os.environ.get("AUTH_SALT", "DivyaLekhaniSecretSalt123!")
+        expected_hash = hashlib.sha256(f"{input_ts}{salt}".encode('utf-8')).hexdigest()
+
+        if password != expected_hash:
+            return func.HttpResponse(
+                json.dumps({"error": "Authorization credentials invalid"}),
                 status_code=401,
                 headers=headers
             )

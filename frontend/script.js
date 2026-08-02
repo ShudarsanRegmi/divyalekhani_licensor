@@ -2,6 +2,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // 1. Auth Form Elements
     const passwordForm = document.getElementById('passwordForm');
     const password = document.getElementById('password');
+    const challengeKey = document.getElementById('challengeKey');
     const btnSubmitPassword = document.getElementById('btnSubmitPassword');
     const spinnerPassword = document.getElementById('spinnerPassword');
     const btnTextPassword = document.getElementById('btnTextPassword');
@@ -42,6 +43,41 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let activeSessionToken = "";
     let activeAuthToken = "";
+
+    const endpoint = window.location.origin.includes('localhost') || window.location.origin.includes('127.0.0.1')
+        ? 'http://localhost:7071/api/generate-license' 
+        : '/api/generate-license';
+
+    // Helper: Browser-native SHA-256
+    async function sha256(message) {
+        const msgBuffer = new TextEncoder().encode(message);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    // Helper: Fetch server time as a session challenge
+    async function fetchChallenge() {
+        challengeKey.textContent = "Loading...";
+        try {
+            const response = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'get_challenge' })
+            });
+            const data = await response.json();
+            if (data.server_time) {
+                challengeKey.textContent = data.server_time;
+            } else {
+                challengeKey.textContent = "Error";
+            }
+        } catch (err) {
+            challengeKey.textContent = "Offline";
+        }
+    }
+
+    // Initial Challenge Retrieval
+    fetchChallenge();
 
     // Auto-formatting Device Code (XXXX-XXXX-XXXX-XXXX-XXXX-XXXX)
     hardwareId.addEventListener('input', (e) => {
@@ -90,16 +126,16 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    const endpoint = window.location.origin.includes('localhost') || window.location.origin.includes('127.0.0.1')
-        ? 'http://localhost:7071/api/generate-license' 
-        : '/api/generate-license';
-
     // --- PHASE 1: SUBMIT SECURITY PASSWORD ---
     passwordForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         errorBanner.style.display = 'none';
         
         setPasswordLoading(true);
+
+        const enteredVal = password.value.trim();
+        const salt = "DivyaLekhaniSecretSalt123!";
+        const hash = await sha256(enteredVal + salt);
 
         try {
             const response = await fetch(endpoint, {
@@ -108,7 +144,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    password: password.value.trim()
+                    password: hash,
+                    timestamp: enteredVal
                 })
             });
 
@@ -130,6 +167,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         } catch (err) {
             showError(err.message);
+            // Refresh challenge key on validation failure
+            fetchChallenge();
         } finally {
             setPasswordLoading(false);
         }
@@ -266,6 +305,7 @@ document.addEventListener('DOMContentLoaded', () => {
         otpForm.style.display = 'none';
         passwordForm.style.display = 'block';
         activeSessionToken = "";
+        fetchChallenge(); // Refresh challenge
     });
 
     btnLockPortal.addEventListener('click', () => {
@@ -276,6 +316,7 @@ document.addEventListener('DOMContentLoaded', () => {
         password.value = "";
         activeAuthToken = "";
         activeSessionToken = "";
+        fetchChallenge(); // Refresh challenge
     });
 
     btnCopy.addEventListener('click', async () => {
